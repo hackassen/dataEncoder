@@ -45,15 +45,17 @@ def encode(fileToEncode, maskingVideoPth, outputPth):
     assert file.exists()
     assert video.exists()
     os.makedirs(output, exist_ok=True)
+    original_sha=get_sha256_hash(file)
+    print("   > original sha: ",original_sha)
     meta={
-        'sha': get_sha256_hash(file),
+        'sha': original_sha,
         'name': file.name
         }
     print("    size of the file been encoded %i "%os.path.getsize(file))
     #!tp
-    sha256_hash=hashlib.sha256()
-    tp_sha=hashlib.sha256()
-    sha2=hashlib.sha256()
+    #sha256_hash=hashlib.sha256()
+    #tp_sha=hashlib.sha256()
+    #sha2=hashlib.sha256()
     
     videos=list()
     dir_traverse(video,"*.mp4", videos)
@@ -70,50 +72,47 @@ def encode(fileToEncode, maskingVideoPth, outputPth):
                 fps=clip.fps
                 #pdb.set_trace()
                 
+                #debug
+                #clipFramesN=len(list(clip.iter_frames()))
+                print(f'=== CONSUMING {videoPth} ...')
+                
                 encoded_frames=list()
                 for i, frame in enumerate(clip.iter_frames()): #=======       frame loop =============                    
                     
-                    #pdb.set_trace()
-                    #plt.imshow(frame)
-                    #plt.waitforbuttonpress()
                     frame_lth=frame[:,:,0].size                    
                     data_ch=data_hendler.read(frame_lth)
-                    #pdb.set_trace() 
                     data_ch=np.frombuffer(data_ch, dtype=np.uint8)
                     
                     #!tp 
-                    sha0=hashlib.sha256(); sha0.update(data_ch.tobytes()); print("sha0:", sha0.hexdigest())
-                    ch0=data_ch
+                    #sha0=hashlib.sha256(); sha0.update(data_ch.tobytes()); print("sha0:", sha0.hexdigest())
+                    #ch0=data_ch
                     
                     if not data_ch.size: 
                         print("   the end of object happened.")
                         dataend_flag=1
                         break                   #       exit the frame loop
-                    total_frames+=1
                     tail=frame_lth-len(data_ch) 
+                    total_frames+=1
 
                     if tail: 
                         print(" got tail :", tail)
                         #tp_data=
                         #pdb.set_trace()
                         #!tp                        
-                        sha256_hash.update(np.concatenate([np.array(encoded_frames)[:,:,:,2].reshape(-1), data_ch ]).tobytes())                        
-                        print("frames : ", sha256_hash.hexdigest())
-                        print("initial:", meta['sha'])
-                        print("bytes  :", tp_sha.hexdigest())
-                        
-                        #sys.exit()
-                        
-                        
+                        #sha256_hash.update(np.concatenate([np.array(encoded_frames)[:,:,:,2].reshape(-1), data_ch ]).tobytes())                        
+                        #print("frames : ", sha256_hash.hexdigest())
+                        #print("initial:", meta['sha'])
+                        #print("bytes  :", tp_sha.hexdigest())
                         data_ch=np.concatenate([data_ch, np.ones(tail)])
                         meta['last_frame']=total_frames
                     newFrame=frame.copy()
                     newFrame[:,:,2]=data_ch.reshape(frame.shape[:2])
                                         
+                    #print(f"   {total_frames} -th frame appended.")
                     encoded_frames.append(newFrame)
                     
-                    dataend_flag=1
-                    break
+                    #dataend_flag=1
+                    #break
                                 
                     #sha256_hash.update(np.array(encoded_frames)[:,:,:,2].reshape(-1).tobytes())                        
                     #print("frames : ", sha256_hash.hexdigest())
@@ -132,8 +131,9 @@ def encode(fileToEncode, maskingVideoPth, outputPth):
                 videoPth=Path(videoPth)
                 newClip.write_videofile(
                     output.as_posix()+"/"+videoPth.stem+"_"+str(clip_id)+videoPth.suffix, 
-                    ffmpeg_params={'-crf': '0'},
-                    preset='veryfast', #'veryslow'
+                    #ffmpeg_params={'-crf': '0'},
+                    #preset='veryfast', #'veryslow',
+                    codec='png'
                     )
                 if dataend_flag: break #                exit the clip loop
                 
@@ -147,16 +147,20 @@ def encode(fileToEncode, maskingVideoPth, outputPth):
             
 
     #!tp 2
-    ch2=np.array(encoded_frames)[:, :,:,2].reshape(-1)
-    sha2.update(ch2.tobytes()); print("sha2:", sha2.hexdigest())
+    #ch2=np.array(encoded_frames)[:, :,:,2].reshape(-1)
+    #sha2.update(ch2.tobytes()); print("sha2:", sha2.hexdigest())
 
     
     #tp
-    clip = VideoFileClip(output.as_posix()+"/"+videoPth.stem+"_"+str(clip_id)+videoPth.suffix, audio=False)
-    frames=np.array(list(clip.iter_frames()))[:,:,:,2].reshape(-1)
+    clip = VideoFileClip(
+        output.as_posix()+"/"+videoPth.stem+"_"+str(clip_id)+videoPth.suffix,
+        audio=False,        
+        )
+    #pdb.set_trace()    
+    frames=np.array(list(clip.iter_frames()))[:,:,:,2].reshape(-1)[:-tail]
+    print("   > tp data len:", len(frames))
     sha3=hashlib.sha256(); sha3.update(frames.tobytes()); print("sha3:", sha3.hexdigest())
 
-    #pdb.set_trace()
     #pdb.set_trace()
     
 
@@ -196,7 +200,7 @@ def decode(encPth, outPth):
                     #pdb.set_trace()
                     data_ch=data_ch[:-tail]
                 total_bytes+=data_ch.size
-                pdb.set_trace()
+                #pdb.set_trace()
                 data_h.write(data_ch.tobytes())
             print("    Writed down %i bytes of data"%total_bytes)
         print("    total_frames: %i"%total_frames)
@@ -210,10 +214,9 @@ def decode(encPth, outPth):
 if __name__=="__main__":
     #decode('out', 'decout')    
     #sys.exit()
-    
-    
+        
     videoCarrierPth='/home/hackassen/Downloads/movies/[Udemy] Python Programming Machine Learning, Deep Learning (05.2021)/'
     outputPth="out"
-    objectPth="Be Svendsen - Circle (Mollono.Bass Remix).mp3"
+    objectPth="drive.tar.gz"
     encode(objectPth, videoCarrierPth, outputPth)
     print("all done")
