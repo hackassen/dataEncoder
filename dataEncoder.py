@@ -4,22 +4,20 @@
 data encoder test
 """
 
-from moviepy.video.io.VideoFileClip import VideoFileClip
-from moviepy.audio.io.AudioFileClip import AudioFileClip
-from moviepy.audio import *
-from moviepy.editor import concatenate_videoclips, ImageSequenceClip
-from moviepy.audio.AudioClip import concatenate_audioclips
-
+from PIL import Image
 import numpy as np
 from pathlib import Path
 import os, pdb, re, sys
 import json, hashlib
 from tqdm import tqdm
+from glob import iglob
 
 from matplotlib import pyplot as plt
+#import glob
 
 METAFILE='meta.txt'
 DEBUG=True
+IMG_DATASET_TYPES=[".jpeg", ".jpg", ".png"]
 
 def get_sha256_hash(file_path):
     sha256_hash = hashlib.sha256()
@@ -28,22 +26,36 @@ def get_sha256_hash(file_path):
             sha256_hash.update(byte_block)
     return sha256_hash.hexdigest()
 
-def dir_traverse(directory:str, filter_types:list, results:list, verb=False):
-    for fl in os.listdir(directory):
-        fl_path = os.path.join(directory, fl)
-        if os.path.isdir(fl_path):
-            #print("     - DIR")
-            dir_traverse(fl_path, filter_types, results)
-        elif os.path.isfile(fl_path) and os.path.splitext(fl)[-1] in filter_types:
-            if verb: print(f"   {fl}")
-            results.append(fl_path)
+#here coul be better to use the  glob.iglob
+#def dir_traverse(directory:str, filter_types:list, results:list, verb=False):
+#    for fl in os.listdir(directory):
+#        fl_path = os.path.join(directory, fl)
+#        if os.path.isdir(fl_path):
+##            #print("     - DIR")
+#            dir_traverse(fl_path, filter_types, results)
+#        elif os.path.isfile(fl_path) and os.path.splitext(fl)[-1] in filter_types:
+#            if verb: print(f"   {fl}")
+#            results.append(fl_path)
+def dir_traverse(directory:str, filter_types:list):
+    #fls=[]
+    for type_ in filter_types: 
+        for fl in iglob(f"**/*{type_}", root_dir=directory, recursive=True):
+            yield fl
+        #fls.extend(list(iglob(f"**/*{type_}", root_dir=directory, recursive=True)))
+    #return fls
+    
 
-def encode(fileToEncode, maskingVideoPth, outputPth):
+def encode_to_imageset(fileToEncode, maskingDatasetPth, outputPth):
     file=Path(fileToEncode)
-    video=Path(maskingVideoPth)
+    #images=[]
+    #dir_traverse(maskingDatasetPth, IMG_DATASET_TYPES, images)
+    #for type_ in IMG_DATASET_TYPES: 
+    #    images.extend(list(iglob(f"**/*{type_}", root_dir=maskingDatasetPth, recursive=True)))
+    
+    #pdb.set_trace()
     output=Path(outputPth)
     assert file.exists()
-    assert video.exists()
+    #assert len(images)
     os.makedirs(output, exist_ok=True)
     original_sha=get_sha256_hash(file)
     print("   > original sha: ",original_sha)
@@ -51,93 +63,53 @@ def encode(fileToEncode, maskingVideoPth, outputPth):
         'sha': original_sha,
         'name': file.name
         }
-    print("    size of the file been encoded %i "%os.path.getsize(file))
-    #!tp
-    #sha256_hash=hashlib.sha256()
-    #tp_sha=hashlib.sha256()
-    #sha2=hashlib.sha256()
+    object_size=os.path.getsize(file)
+    print("    size of the file been encoded %i "%object_size)
     
-    videos=list()
-    dir_traverse(video,"*.mp4", videos)
-    if not len(videos): raise Exception("no '*.mp4' files found in maskingVideoPth. (Currently only '.mp4' files supported)")
     tail=0
     dataend_flag=0
     with open(file, 'rb') as data_hendler:
-            clip_id=0
+            order_mark=0
             total_bytes=0
-            total_frames=0
-            for videoPth in videos: #=======       video loop =============                
-                clip_id+=1
-                clip = VideoFileClip(videoPth)
-                fps=clip.fps
-                #pdb.set_trace()
-                
-                #debug
-                #clipFramesN=len(list(clip.iter_frames()))
-                print(f'=== CONSUMING {videoPth} ...')
-                
-                encoded_frames=list()
-                for i, frame in enumerate(clip.iter_frames()): #=======       frame loop =============                    
+            total_images=0
+            while True: #                       # dataset loop
+                for i, impth in enumerate(tqdm(dir_traverse(maskingDatasetPth, IMG_DATASET_TYPES), desc="images encoded: ")): #=======       image loop =============                    
                     
-                    frame_lth=frame[:,:,0].size                    
-                    data_ch=data_hendler.read(frame_lth)
-                    data_ch=np.frombuffer(data_ch, dtype=np.uint8)
+                    impth=Path(impth)
+                    #print(f"    - {impth} processing....")
+                    image=np.array(Image.open(Path(maskingDatasetPth) / impth).convert("RGB"))
+                    #pdb.set_trace()
                     
-                    #!tp 
-                    #sha0=hashlib.sha256(); sha0.update(data_ch.tobytes()); print("sha0:", sha0.hexdigest())
-                    #ch0=data_ch
+                    image_lth=image[:,:,0].size                    
+                    data_ch=np.frombuffer(
+                        data_hendler.read(image_lth), 
+                        dtype=np.uint8)
                     
                     if not data_ch.size: 
                         print("   the end of object happened.")
                         dataend_flag=1
-                        break                   #       exit the frame loop
-                    tail=frame_lth-len(data_ch) 
-                    total_frames+=1
-
+                        break                   #       exit the image loop
+                    tail=image_lth-len(data_ch) 
+                    total_images+=1
+                    total_bytes+=len(data_ch)
+                    
                     if tail: 
                         print(" got tail :", tail)
-                        #tp_data=
-                        #pdb.set_trace()
-                        #!tp                        
-                        #sha256_hash.update(np.concatenate([np.array(encoded_frames)[:,:,:,2].reshape(-1), data_ch ]).tobytes())                        
-                        #print("frames : ", sha256_hash.hexdigest())
-                        #print("initial:", meta['sha'])
-                        #print("bytes  :", tp_sha.hexdigest())
                         data_ch=np.concatenate([data_ch, np.ones(tail)])
-                        meta['last_frame']=total_frames
-                    newFrame=frame.copy()
-                    newFrame[:,:,2]=data_ch.reshape(frame.shape[:2])
-                                        
-                    #print(f"   {total_frames} -th frame appended.")
-                    encoded_frames.append(newFrame)
-                    
-                    #dataend_flag=1
-                    #break
-                                
-                    #sha256_hash.update(np.array(encoded_frames)[:,:,:,2].reshape(-1).tobytes())                        
-                    #print("frames : ", sha256_hash.hexdigest())
-                    #print("bytes  :", tp_sha.hexdigest())
-                    #pdb.set_trace() 
-                    
-                    total_bytes+=data_ch.size
-                    #plt.imshow(newFrame)
-                #pdb.set_trace()
+                        meta['last_image']=total_images
+                        
+                    image[:,:,2]=data_ch.reshape(image.shape[:2])
+                                                          
+                    save_dir=output/impth.parent
+                    #pdb.set_trace()
+                    if not save_dir.exists(): os.makedirs(save_dir)
+                    #Image.fromarray(image).save(save_dir.as_posix()+"/"+impth.stem+"_"+str(order_mark)+impth.suffix)
+                    Image.fromarray(image).save(save_dir.as_posix()+"/"+impth.stem+"_"+str(order_mark)+".png")
+                    order_mark+=1
+                     
+                if dataend_flag: break #                exit the dataset loop
                 
-                #saving collected list of frames to clip
-                
-                newClip=ImageSequenceClip(encoded_frames, fps=fps)
-                
-                
-                videoPth=Path(videoPth)
-                newClip.write_videofile(
-                    output.as_posix()+"/"+videoPth.stem+"_"+str(clip_id)+videoPth.suffix, 
-                    #ffmpeg_params={'-crf': '0'},
-                    #preset='veryfast', #'veryslow',
-                    codec='png'
-                    )
-                if dataend_flag: break #                exit the clip loop
-                
-            print("Data encoding ends, overall processed %i frames. "%total_frames)
+            print("Data encoding ends, overall processed %i images. "%total_images)
             meta['tail']=tail
             metaPth=output/Path(METAFILE)
             with open(metaPth, 'w') as h:            
@@ -145,24 +117,6 @@ def encode(fileToEncode, maskingVideoPth, outputPth):
             print("    %i bytes been wrote. "%total_bytes)
             print("The metafile has been writed to %s" % metaPth.as_posix())
             
-
-    #!tp 2
-    #ch2=np.array(encoded_frames)[:, :,:,2].reshape(-1)
-    #sha2.update(ch2.tobytes()); print("sha2:", sha2.hexdigest())
-
-    
-    #tp
-    clip = VideoFileClip(
-        output.as_posix()+"/"+videoPth.stem+"_"+str(clip_id)+videoPth.suffix,
-        audio=False,        
-        )
-    #pdb.set_trace()    
-    frames=np.array(list(clip.iter_frames()))[:,:,:,2].reshape(-1)[:-tail]
-    print("   > tp data len:", len(frames))
-    sha3=hashlib.sha256(); sha3.update(frames.tobytes()); print("sha3:", sha3.hexdigest())
-
-    #pdb.set_trace()
-    
 
 def decode(encPth, outPth):
     encPth=Path(encPth)
@@ -174,36 +128,35 @@ def decode(encPth, outPth):
     with open(metaPth, 'r') as h:        
         meta=json.load(h)
     print("Found the metafile. ")
-    sha, name, tail, last_frame=meta['sha'], meta['name'], meta['tail'], meta['last_frame']
+    sha, name, tail, last_image=meta['sha'], meta['name'], meta['tail'], meta['last_image']
     print("    recovering file '%s'"%name)    
-    videos=list()
-    dir_traverse(encPth,"*.mp4", videos)
+    #videos=list()
+    #dir_traverse(encPth,"*.mp4", videos)
+    im_list=list(dir_traverse(encPth, IMG_DATASET_TYPES))
     with open(output/Path(name), 'wb') as data_h:
-        video_order_list=[int(re.search("(\d+)\.mp4$", v)[1]) for v in videos]
-        videos=np.array(videos)[np.argsort(video_order_list)]
+        im_order_list=[int(re.search("(\d+)\.[\d\w]{3,4}$", v)[1]) for v in im_list]
+        #pdb.set_trace()
+        im_list=np.array(im_list)[np.argsort(im_order_list)]
+        #pdb.set_trace()
         total_bytes=0    
-        total_frames=0
-        for videoFl in videos:
-            print("    '%s' processing ..."%videoFl)
-            clip = VideoFileClip(videoFl, audio=False)
+        total_images=0
+        for imFl in im_list:
+            print("    '%s' processing ..."%imFl)
+            im=np.array(Image.open(encPth/Path(imFl)).convert("RGB"))            
+            data_ch=im[:,:,2].reshape(-1)            
             
-            #framesN=int(clip.fps*clip.duration)
-            
-            for i, frame in enumerate(tqdm(clip.iter_frames(), desc="frames processed..")): # may be need to define fps here....
-                total_frames+=1
-                #pdb.set_trace()                
-                data_ch=frame[:,:,2].reshape(-1)
-                #print("    >  %i bytes processed.."%total_bytes)
-            
-                if videoFl==videos[-1] and i+1==last_frame:                                             # clipping the tail
-                    print("    clipping %i bytes of tail"%tail, " on the %i -th frame"%total_frames)
-                    #pdb.set_trace()
-                    data_ch=data_ch[:-tail]
-                total_bytes+=data_ch.size
+            #print("    >  %i bytes processed.."%total_bytes)
+            if imFl==im_list[-1]:                                             # clipping the tail
+                print("    clipping %i bytes of tail"%tail, " on the %i -th image"%total_images)
                 #pdb.set_trace()
-                data_h.write(data_ch.tobytes())
+                data_ch=data_ch[:-tail]
+            total_bytes+=data_ch.size
+            #pdb.set_trace()
+            data_h.write(data_ch.tobytes())
+            total_images+=1
+            #pdb.set_trace()                
             print("    Writed down %i bytes of data"%total_bytes)
-        print("    total_frames: %i"%total_frames)
+        print("    total_images: %i"%total_images)
         
     result_sha=get_sha256_hash(output/Path(name))    
     if sha!=result_sha: sys.exit(" initial and result shas doesn't match.")
@@ -212,11 +165,11 @@ def decode(encPth, outPth):
                 
                 
 if __name__=="__main__":
-    #decode('out', 'decout')    
-    #sys.exit()
+    decode('out', 'decout')    
+    sys.exit()
         
-    videoCarrierPth='/home/hackassen/Downloads/movies/[Udemy] Python Programming Machine Learning, Deep Learning (05.2021)/'
+    datasetPth='/home/hackassen/works/dataEncoder/x-ray_dataset'
     outputPth="out"
     objectPth="drive.tar.gz"
-    encode(objectPth, videoCarrierPth, outputPth)
+    encode_to_imageset(objectPth, datasetPth, outputPth)
     print("all done")
