@@ -8,60 +8,33 @@ from PIL import Image
 import numpy as np
 from pathlib import Path
 import os, pdb, re, sys
-import json, hashlib
+import json
 from tqdm import tqdm
-from glob import iglob
+#from glob import iglob
 
 from matplotlib import pyplot as plt
-#import glob
+
+from utils import dir_traverse, get_sha256_hash, replaceLSB, extractLSB  
 
 METAFILE='meta.txt'
 DEBUG=True
 IMG_DATASET_TYPES=[".jpeg", ".jpg", ".png"]
 
-def get_sha256_hash(file_path):
-    sha256_hash = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for byte_block in iter(lambda: f.read(4096), b""):
-            sha256_hash.update(byte_block)
-    return sha256_hash.hexdigest()
+LSBits_AVALIBLE=[1, 2, 4, 8]
 
-#here coul be better to use the  glob.iglob
-#def dir_traverse(directory:str, filter_types:list, results:list, verb=False):
-#    for fl in os.listdir(directory):
-#        fl_path = os.path.join(directory, fl)
-#        if os.path.isdir(fl_path):
-##            #print("     - DIR")
-#            dir_traverse(fl_path, filter_types, results)
-#        elif os.path.isfile(fl_path) and os.path.splitext(fl)[-1] in filter_types:
-#            if verb: print(f"   {fl}")
-#            results.append(fl_path)
-def dir_traverse(directory:str, filter_types:list):
-    #fls=[]
-    for type_ in filter_types: 
-        for fl in iglob(f"**/*{type_}", root_dir=directory, recursive=True):
-            yield fl
-        #fls.extend(list(iglob(f"**/*{type_}", root_dir=directory, recursive=True)))
-    #return fls
+def encode_to_imageset(fileToEncode, maskingDatasetPth, outputPth, LSBits=2):
+    assert LSBits in LSBits_AVALIBLE
     
-
-def encode_to_imageset(fileToEncode, maskingDatasetPth, outputPth):
-    file=Path(fileToEncode)
-    #images=[]
-    #dir_traverse(maskingDatasetPth, IMG_DATASET_TYPES, images)
-    #for type_ in IMG_DATASET_TYPES: 
-    #    images.extend(list(iglob(f"**/*{type_}", root_dir=maskingDatasetPth, recursive=True)))
-    
-    #pdb.set_trace()
+    file=Path(fileToEncode)    
     output=Path(outputPth)
     assert file.exists()
-    #assert len(images)
     os.makedirs(output, exist_ok=True)
     original_sha=get_sha256_hash(file)
     print("   > original sha: ",original_sha)
     meta={
         'sha': original_sha,
-        'name': file.name
+        'name': file.name,
+        'LSBits':LSBits,
         }
     object_size=os.path.getsize(file)
     print("    size of the file been encoded %i "%object_size)
@@ -76,10 +49,7 @@ def encode_to_imageset(fileToEncode, maskingDatasetPth, outputPth):
                 for i, impth in enumerate(tqdm(dir_traverse(maskingDatasetPth, IMG_DATASET_TYPES), desc="images encoded: ")): #=======       image loop =============                    
                     
                     impth=Path(impth)
-                    #print(f"    - {impth} processing....")
                     image=np.array(Image.open(Path(maskingDatasetPth) / impth).convert("RGB"))
-                    #pdb.set_trace()
-                    
                     image_lth=image[:,:,0].size                    
                     data_ch=np.frombuffer(
                         data_hendler.read(image_lth), 
@@ -90,34 +60,38 @@ def encode_to_imageset(fileToEncode, maskingDatasetPth, outputPth):
                         dataend_flag=1
                         break                   #       exit the image loop
                     tail=image_lth-len(data_ch) 
-                    total_images+=1
+                    #total_images+=1
                     total_bytes+=len(data_ch)
                     
                     if tail: 
                         print(" got tail :", tail)
-                        data_ch=np.concatenate([data_ch, np.ones(tail)])
-                        meta['last_image']=total_images
+                        data_ch=np.concatenate([data_ch, np.ones(tail, dtype=np.uint8)])
+                        #meta['last_image']=total_images
                         
-                    image[:,:,2]=data_ch.reshape(image.shape[:2])
-                                                          
                     save_dir=output/impth.parent
                     #pdb.set_trace()
                     if not save_dir.exists(): os.makedirs(save_dir)
-                    #Image.fromarray(image).save(save_dir.as_posix()+"/"+impth.stem+"_"+str(order_mark)+impth.suffix)
-                    Image.fromarray(image).save(save_dir.as_posix()+"/"+impth.stem+"_"+str(order_mark)+".png")
-                    order_mark+=1
-                     
+                    blue_chan=image[:,:,2].reshape(-1)
+                    payload=data_ch; #data_ch.reshape(image.shape[:2])
+                    encoded_blue_chan=replaceLSB(blue_chan, payload, LSBits)
+                    #pdb.set_trace()
+                    for shift_i in range(encoded_blue_chan.shape[1]):  
+                        image[:,:,2]=encoded_blue_chan[:, shift_i].reshape(image.shape[:2])
+                        Image.fromarray(image).save(save_dir.as_posix()+"/"+impth.stem+"_"+str(order_mark)+".png")
+                        order_mark+=1
+                        total_images+=1
+
                 if dataend_flag: break #                exit the dataset loop
                 
             print("Data encoding ends, overall processed %i images. "%total_images)
             meta['tail']=tail
+            meta['last_image']=total_images
             metaPth=output/Path(METAFILE)
             with open(metaPth, 'w') as h:            
                 json.dump(meta, h)
             print("    %i bytes been wrote. "%total_bytes)
             print("The metafile has been writed to %s" % metaPth.as_posix())
             
-
 def decode(encPth, outPth):
     encPth=Path(encPth)
     output=Path(outPth)
@@ -128,7 +102,10 @@ def decode(encPth, outPth):
     with open(metaPth, 'r') as h:        
         meta=json.load(h)
     print("Found the metafile. ")
-    sha, name, tail, last_image=meta['sha'], meta['name'], meta['tail'], meta['last_image']
+    sha, name, tail, last_image, LSBits=meta['sha'], meta['name'], meta['tail'], meta['last_image'], meta['LSBits']
+    LSBshiftsN=int(8/LSBits)
+    assert last_image%LSBshiftsN==0
+    
     print("    recovering file '%s'"%name)    
     #videos=list()
     #dir_traverse(encPth,"*.mp4", videos)
@@ -140,20 +117,25 @@ def decode(encPth, outPth):
         #pdb.set_trace()
         total_bytes=0    
         total_images=0
+        im_shifts_batch=[]
         for imFl in im_list:
             print("    '%s' processing ..."%imFl)
-            im=np.array(Image.open(encPth/Path(imFl)).convert("RGB"))            
-            data_ch=im[:,:,2].reshape(-1)            
-            
+            im=np.array(Image.open(encPth/Path(imFl)).convert("RGB"), dtype=np.uint8)            
+            data_ch=im[:,:,2].reshape(-1)
+                        
             #print("    >  %i bytes processed.."%total_bytes)
-            if imFl==im_list[-1]:                                             # clipping the tail
+            if total_images>=last_image-LSBshiftsN:                                             # clipping the tail
                 print("    clipping %i bytes of tail"%tail, " on the %i -th image"%total_images)
                 #pdb.set_trace()
                 data_ch=data_ch[:-tail]
             total_bytes+=data_ch.size
-            #pdb.set_trace()
-            data_h.write(data_ch.tobytes())
             total_images+=1
+            
+            im_shifts_batch.append(data_ch)
+            if(len(im_shifts_batch)==LSBshiftsN):
+                decoded_data=extractLSB(np.array(im_shifts_batch).T, LSBits)
+                data_h.write(decoded_data.tobytes())                
+                im_shifts_batch=[]
             #pdb.set_trace()                
             print("    Writed down %i bytes of data"%total_bytes)
         print("    total_images: %i"%total_images)
@@ -161,15 +143,7 @@ def decode(encPth, outPth):
     result_sha=get_sha256_hash(output/Path(name))    
     if sha!=result_sha: sys.exit(" initial and result shas doesn't match.")
     
-                #
-                
                 
 if __name__=="__main__":
-    decode('out', 'decout')    
-    sys.exit()
-        
-    datasetPth='/home/hackassen/works/dataEncoder/x-ray_dataset'
-    outputPth="out"
-    objectPth="drive.tar.gz"
-    encode_to_imageset(objectPth, datasetPth, outputPth)
-    print("all done")
+    sys.exit("No unit tests avalible.")
+    
