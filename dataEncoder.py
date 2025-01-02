@@ -10,11 +10,9 @@ from pathlib import Path
 import os, pdb, re, sys
 import json
 from tqdm import tqdm
-#from glob import iglob
-
 from matplotlib import pyplot as plt
 
-from utils import dir_traverse, get_sha256_hash, replaceLSB, extractLSB  
+from utils import dir_traverse, get_sha256_hash, replaceLSB, extractLSB, timeit
 
 METAFILE='meta.txt'
 DEBUG=True
@@ -22,9 +20,10 @@ IMG_DATASET_TYPES=[".jpeg", ".jpg", ".png"]
 
 LSBits_AVALIBLE=[1, 2, 4, 8]
 
+@timeit
 def encode_to_imageset(fileToEncode, maskingDatasetPth, outputPth, LSBits=2):
     assert LSBits in LSBits_AVALIBLE
-    
+    #start_tmstamp=time.time()    
     file=Path(fileToEncode)    
     output=Path(outputPth)
     assert file.exists()
@@ -80,8 +79,10 @@ def encode_to_imageset(fileToEncode, maskingDatasetPth, outputPth, LSBits=2):
                         Image.fromarray(image).save(save_dir.as_posix()+"/"+impth.stem+"_"+str(order_mark)+".png")
                         order_mark+=1
                         total_images+=1
-
+                    print("    processed {:.2f}/{:.2f} Mb".format(total_bytes/1E+6, object_size/1E+6))
+                    
                 if dataend_flag: break #                exit the dataset loop
+                
                 
             print("Data encoding ends, overall processed %i images. "%total_images)
             meta['tail']=tail
@@ -91,7 +92,9 @@ def encode_to_imageset(fileToEncode, maskingDatasetPth, outputPth, LSBits=2):
                 json.dump(meta, h)
             print("    %i bytes been wrote. "%total_bytes)
             print("The metafile has been writed to %s" % metaPth.as_posix())
-            
+            #print("  Encoding took {:.1f} seconds for {:.1f} Mb".format(time.time()-start_tmstamp, object_size/1000000))
+
+@timeit        
 def decode(encPth, outPth):
     encPth=Path(encPth)
     output=Path(outPth)
@@ -142,6 +145,7 @@ def decode(encPth, outPth):
         
     result_sha=get_sha256_hash(output/Path(name))    
     if sha!=result_sha: sys.exit(" initial and result shas doesn't match.")
+
     
                 
 if __name__=="__main__":

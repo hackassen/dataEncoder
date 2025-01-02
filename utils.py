@@ -4,6 +4,7 @@ import hashlib
 import numpy as np
 import pdb
 from copy import deepcopy
+import time
 
 def get_sha256_hash(file_path):
     sha256_hash = hashlib.sha256()
@@ -63,3 +64,16 @@ def print_byte(byte):
 def print_arrBytewise(arr):
     for v in arr:
         print(print_byte(v))
+        
+#decorator for measuring execution time
+
+def timeit(func):
+    def wrapper(*args, **kwargs):
+        start_tm=time.time()
+        res=func(*args, **kwargs)
+        print("   it took {:.2f} seconds. ".format(time.time()-start_tm))
+        return res
+    return wrapper
+        
+
+
