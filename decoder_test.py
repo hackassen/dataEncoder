@@ -2,7 +2,7 @@
 decoding tests
 """
 import sys
-from dataEncoder import encode_to_imageset, decode
+from dataEncoder import decode
 
 #ToDo - test it with somewhat lager files...
 

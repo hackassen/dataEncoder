@@ -17,6 +17,7 @@ def dir_traverse(directory:str, filter_types:list):
     for type_ in filter_types: 
         for fl in iglob(f"**/*{type_}", root_dir=directory, recursive=True):
             yield fl
+            
 LSB_PATTERNS={
     1:[0b11111110, 0b1],
     2:[0b11111100, 0b11],
