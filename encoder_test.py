@@ -4,13 +4,13 @@ encoding-decoding tests
 import sys, os, glob
 from dataEncoder import encode, decode
 import shutil
-
-#decode('out', 'decout')    
-#sys.exit()
     
-datasetPth='/home/hackassen/works/dataEncoder/x-ray_dataset'
+#datasetPth='/home/hackassen/works/dataEncoder/x-ray_dataset'
+datasetPth='/home/hackassen/Downloads/movies/[Udemy] Python Programming Machine Learning, Deep Learning (05.2021)/'
+
 outputPth="out"
 objectPth="payloads/4. Array’s Operators.srt"
+#objectPth="payloads/Be Svendsen - Circle (Mollono.Bass Remix).mp3.tar.gz"
 
 # clearing output directory
 for file in glob.glob(os.path.join(outputPth, '*')):    

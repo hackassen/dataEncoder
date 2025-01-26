@@ -18,9 +18,7 @@ from io_utils import infer_io
 METAFILE='meta.txt'
 DEBUG=True
 LSBits_AVALIBLE=[1, 2, 4, 8]
-
-
-    
+ 
 @timeit
 def encode(fileToEncode, maskingPth, outputPth, LSBits=2):
     assert LSBits in LSBits_AVALIBLE
@@ -119,16 +117,16 @@ def decode(encPth, outPth):
             if total_images>=last_image-LSBshiftsN:                                             # clipping the tail
                 print("    clipping %i bytes of tail"%tail, " on the %i -th image"%total_images)
                 data_ch=data_ch[:-tail]
-            total_bytes+=data_ch.size
             total_images+=1
             
             im_shifts_batch.append(data_ch)
             if(len(im_shifts_batch)==LSBshiftsN):
                 decoded_data=extractLSB(np.array(im_shifts_batch).T, LSBits)
                 data_h.write(decoded_data.tobytes())                
+                total_bytes+=decoded_data.size
                 im_shifts_batch=[]
+                print("    Writed down %i bytes of data"%total_bytes)
             #pdb.set_trace()                
-            print("    Writed down %i bytes of data"%total_bytes)
         print("    total_images: %i"%total_images)
         
     result_sha=get_sha256_hash(output/Path(name))    
